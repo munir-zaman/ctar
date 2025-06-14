@@ -12,8 +12,8 @@ struct tar_header {
     char file_size[12];
     char last_mod_time[12];
     char checksum[8];
+    // NOTE: Should `type` be a char[] or char?
     char type[1];
-    // NOTE: Should type be a char[] or char
     char linked_file_name[100];
     char ustar[6];                  // "ustar\0"
     char ustar_version[2];          // "00"
@@ -30,32 +30,35 @@ struct tar_entry {
     long offset; // file data offset
 };
 
-void fill_buff(FILE *fp, char *buff, size_t size)
-{
-    fread(buff, sizeof(char), size, fp);
-}
+void fread_header(struct tar_header *header, FILE *fp) {
+    /* Reads header data into `header` from `fp`*/
 
-// NOTE: imporve this maybe?
-#define FILL_FIELD(field) fill_buff(fp, header->field, sizeof(header->field))
-void fill_header(FILE *fp, struct tar_header *header)
-{
-    FILL_FIELD(file_path);
-    FILL_FIELD(file_mode);
-    FILL_FIELD(owner_id);
-    FILL_FIELD(group_id);
-    FILL_FIELD(file_size);
-    FILL_FIELD(last_mod_time);
-    FILL_FIELD(checksum);
-    FILL_FIELD(type);
-    FILL_FIELD(linked_file_name);
-    FILL_FIELD(ustar);
-    FILL_FIELD(ustar_version);
-    FILL_FIELD(owner_user_name);
-    FILL_FIELD(owner_group_name);
-    FILL_FIELD(dev_major);
-    FILL_FIELD(dev_minor);
-    FILL_FIELD(file_prefix);
-    FILL_FIELD(padding);
+    char buffer[512]; // 512 byte buffer
+    size_t bytes_read = fread(buffer, 1, 512, fp); 
+    if (bytes_read != 512) {
+        // couldn't read 512 bytes
+        fprintf(stderr, "fread_header error: couldn't read header data.");
+        return;
+    }
+
+    memcpy(header->file_path,           buffer +   0,   100);
+    memcpy(header->file_mode,           buffer + 100,   8);
+    memcpy(header->owner_id,            buffer + 108,   8);
+    memcpy(header->group_id,            buffer + 116,   8);
+    memcpy(header->file_size,           buffer + 124,   12);
+    memcpy(header->last_mod_time,       buffer + 136,   12);
+    memcpy(header->checksum,            buffer + 148,   8);
+    memcpy(header->type,                buffer + 156,   1);
+    memcpy(header->linked_file_name,    buffer + 157,   100);
+    memcpy(header->ustar,               buffer + 257,   6);
+    memcpy(header->ustar_version,       buffer + 263,   2);
+    memcpy(header->owner_user_name,     buffer + 265,   32);
+    memcpy(header->owner_group_name,    buffer + 297,   32);
+    memcpy(header->dev_major,           buffer + 329,   8);
+    memcpy(header->dev_minor,           buffer + 337,   8);
+    memcpy(header->file_prefix,         buffer + 345,   155);
+    memcpy(header->padding,             buffer + 500,   12);
+
 }
 
 int main(int argc, char* argv[])
@@ -72,7 +75,8 @@ int main(int argc, char* argv[])
         entry = (struct tar_entry *)malloc(sizeof(*entry));
         entry->header = (struct tar_header *)malloc(sizeof(*(entry->header)));
 
-        fill_header(fp, (entry->header));
+        // read 512 bytes into `entry->header` from `fp`
+        fread_header(entry->header, fp);
         entry->offset = ftell(fp);
         
         // entry->header->file_size is not null terminated
