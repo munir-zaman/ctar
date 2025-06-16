@@ -29,22 +29,8 @@ struct tar_entry {
     long offset;
 };
 
-int fread_header(struct tar_header *header, FILE *fp) {
-    char buffer[512];
-    size_t bytes_read = fread(buffer, 1, 512, fp); 
-    if (bytes_read != 512) {
-       if (feof(fp)) {
-            return 0;
-        }
-        else if (ferror(fp)) {
-            perror("fread_header: fread failed");
-            return -1;
-        } else {
-            fprintf(stderr, "fread_header: incomplete read (read %zu bytes)\n", bytes_read);
-            return -1;
-        }
-    }
-
+void parse_tar_header(struct tar_header *header, const char *buffer) {
+    /* copy header data from buffer */
     memcpy(header->file_path,           buffer +   0,   100);
     memcpy(header->file_mode,           buffer + 100,   8);
     memcpy(header->owner_id,            buffer + 108,   8);
@@ -62,8 +48,6 @@ int fread_header(struct tar_header *header, FILE *fp) {
     memcpy(header->dev_minor,           buffer + 337,   8);
     memcpy(header->file_prefix,         buffer + 345,   155);
     memcpy(header->padding,             buffer + 500,   12);
-    
-    return 1;
 }
 
 int main(int argc, char* argv[])
@@ -75,38 +59,37 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    char buffer[512];
     while (true) {
-        struct tar_entry *entry;
-        entry = (struct tar_entry *)malloc(sizeof(*entry));
-        entry->header = (struct tar_header *)malloc(sizeof(*(entry->header)));
+        int fread_status = (fread(buffer, 1, 512, fp) == 512);
+        if (!fread_status) break;
 
-        if (fread_header(entry->header, fp) > 0) {
-            entry->offset = ftell(fp);
-            
-            // entry->header->file_size is not null terminated
-            // which may cause strtol to not work properly
-            // so we copy it into a null terminated buffer
-            char ascii_file_size_buff[13];
-            memcpy(ascii_file_size_buff, (entry->header)->file_size, sizeof((entry->header)->file_size));
-            ascii_file_size_buff[12] = '\0';
+        struct tar_header header;
+        struct tar_entry entry;
+        entry.header = &header;
 
-            long file_size = strtol(ascii_file_size_buff, NULL, 8);
-            size_t chunks = (file_size + 511) / 512;
-            size_t padded_size = chunks * 512;
-            printf("file_size: %d chunks:  %d padded_size: %d \n", file_size, chunks, padded_size);
-            
-            // skip file data
-            // fseek(fp, SEEK_CUR, padded_size-1);
-            
-            // read into buffer and print buffer
-            char buffer[padded_size+1];
-            fread(&buffer, sizeof(char), padded_size, fp);
-            buffer[padded_size] = '\0';
-            printf("file data: \n%s\n", buffer);
-        } else break;
-        free(entry->header);
-        free(entry);
+        parse_tar_header(&header, buffer);
+        entry.offset = ftell(fp);
+
+        // null terminate header.full_size
+        char ascii_file_size[13];
+        memcpy(ascii_file_size, header.file_size, 12);
+        ascii_file_size[12] = '\0';
+        
+        // convert file size in ascii octal to decimal
+        size_t file_size = strtol(ascii_file_size, NULL, 8);
+        size_t chunks = (file_size + 511) / 512;
+        size_t total_size = 512 * chunks;
+
+        printf("file_size: %d chunks: %d total_size: %d\n", file_size, chunks, total_size);
+
+        char *data = (char *) malloc(total_size + 1);
+        data[total_size] = '\0';
+        fread(data, 1, total_size, fp);
+
+        printf("%s\n", data);
     }
+
     fclose(fp);
-    return 1;
+    return 0;
 }
