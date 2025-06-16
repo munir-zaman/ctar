@@ -12,8 +12,7 @@ struct tar_header {
     char file_size[12];
     char last_mod_time[12];
     char checksum[8];
-    // NOTE: Should `type` be a char[] or char?
-    char type[1];
+    char type;
     char linked_file_name[100];
     char ustar[6];
     char ustar_version[2];
@@ -31,12 +30,19 @@ struct tar_entry {
 };
 
 int fread_header(struct tar_header *header, FILE *fp) {
-
     char buffer[512];
     size_t bytes_read = fread(buffer, 1, 512, fp); 
     if (bytes_read != 512) {
-        // fprintf(stderr, "fread_header error: couldn't read header data.\n");
-        return -1;
+       if (feof(fp)) {
+            return 0;
+        }
+        else if (ferror(fp)) {
+            perror("fread_header: fread failed");
+            return -1;
+        } else {
+            fprintf(stderr, "fread_header: incomplete read (read %zu bytes)\n", bytes_read);
+            return -1;
+        }
     }
 
     memcpy(header->file_path,           buffer +   0,   100);
@@ -46,7 +52,7 @@ int fread_header(struct tar_header *header, FILE *fp) {
     memcpy(header->file_size,           buffer + 124,   12);
     memcpy(header->last_mod_time,       buffer + 136,   12);
     memcpy(header->checksum,            buffer + 148,   8);
-    memcpy(header->type,                buffer + 156,   1);
+    memcpy(&header->type,                buffer + 156,   1);
     memcpy(header->linked_file_name,    buffer + 157,   100);
     memcpy(header->ustar,               buffer + 257,   6);
     memcpy(header->ustar_version,       buffer + 263,   2);
@@ -69,7 +75,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    while (!feof(fp)) {
+    while (true) {
         struct tar_entry *entry;
         entry = (struct tar_entry *)malloc(sizeof(*entry));
         entry->header = (struct tar_header *)malloc(sizeof(*(entry->header)));
@@ -82,7 +88,7 @@ int main(int argc, char* argv[])
             // so we copy it into a null terminated buffer
             char ascii_file_size_buff[13];
             memcpy(ascii_file_size_buff, (entry->header)->file_size, sizeof((entry->header)->file_size));
-            ascii_file_size_buff[13] = '\0';
+            ascii_file_size_buff[12] = '\0';
 
             long file_size = strtol(ascii_file_size_buff, NULL, 8);
             size_t chunks = (file_size + 511) / 512;
@@ -97,8 +103,10 @@ int main(int argc, char* argv[])
             fread(&buffer, sizeof(char), padded_size, fp);
             buffer[padded_size] = '\0';
             printf("file data: \n%s\n", buffer);
-        }
+        } else break;
         free(entry->header);
         free(entry);
     }
+    fclose(fp);
+    return 1;
 }
