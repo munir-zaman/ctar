@@ -88,6 +88,8 @@ int main(int argc, char* argv[])
         fread(data, 1, total_size, fp);
 
         printf("%s\n", data);
+
+        free(data);
     }
 
     fclose(fp);
